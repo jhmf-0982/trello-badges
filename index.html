@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Badges Interfood</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body>
+<script>
+/* ==========================================================================
+   CONFIGURAÇÃO
+   Esta é a única parte do arquivo que você precisa editar.
+   ========================================================================== */
+
+var CONFIG = {
+
+  // Cada item aqui vira um badge na frente do card.
+  // "campo" tem que ser IDENTICO ao nome do campo personalizado no Trello,
+  // incluindo acentos e maiusculas.
+  campos: [
+
+    {
+      campo: 'Etapa',
+      cor: 'blue',
+      // Cores por valor. Valores nao listados usam a "cor" acima.
+      coresPorValor: {
+        'Correção': 'red',
+        'Revisão': 'orange',
+        'Aprovação': 'green',
+        'Publicação': 'sky',
+        'Distribuição': 'purple',
+        'Upload': 'yellow',
+        'Legenda': 'pink'
+      }
+    },
+
+    {
+      campo: 'Prioridade',
+      cor: 'red',
+      // So mostra o badge se o valor estiver nesta lista.
+      // Deixe null pra mostrar qualquer valor.
+      mostrarApenas: ['Urgente']
+    },
+
+    {
+      campo: 'Pendência',
+      cor: 'orange',
+      // Para checkbox: texto exibido quando marcado.
+      // Quando desmarcado, o badge nao aparece.
+      textoQuandoMarcado: 'Pendência'
+    },
+
+    {
+      campo: 'Criador do arquivo',
+      cor: 'light-gray'
+    }
+
+  ],
+
+  // Intervalo de atualizacao dos badges, em segundos.
+  // O minimo aceito pelo Trello e 10.
+  intervalo: 10
+};
+
+/* ==========================================================================
+   A PARTIR DAQUI NAO PRECISA MEXER
+   ========================================================================== */
+
+// Le o valor de um item de campo personalizado, cobrindo todos os tipos
+// que o Trello suporta (lista, texto, numero, data, checkbox).
+function lerValor(item, definicao) {
+  if (!item) return null;
+
+  // Dropdown: o item guarda apenas o id da opcao escolhida.
+  // O texto vem da definicao do campo, guardada no board.
+  if (item.idValue) {
+    var opcoes = definicao && definicao.options ? definicao.options : [];
+    for (var i = 0; i < opcoes.length; i++) {
+      if (opcoes[i].id === item.idValue) {
+        return opcoes[i].value ? opcoes[i].value.text : null;
+      }
+    }
+    return null;
+  }
+
+  var v = item.value;
+  if (!v) return null;
+
+  if (typeof v.checked !== 'undefined') {
+    return (v.checked === true || v.checked === 'true') ? '__MARCADO__' : null;
+  }
+  if (typeof v.text !== 'undefined') return v.text;
+  if (typeof v.number !== 'undefined') return String(v.number);
+  if (typeof v.date !== 'undefined') {
+    try {
+      return new Date(v.date).toLocaleDateString('pt-BR');
+    } catch (e) {
+      return v.date;
+    }
+  }
+  return null;
+}
+
+function montarBadges(definicoes, itens) {
+  var badges = [];
+
+  // Indexa as definicoes de campo do board por nome, pra achar rapido.
+  var porNome = {};
+  (definicoes || []).forEach(function (d) {
+    if (d && d.name) porNome[d.name] = d;
+  });
+
+  CONFIG.campos.forEach(function (cfg) {
+    var definicao = porNome[cfg.campo];
+    if (!definicao) return; // campo nao existe neste board
+
+    var item = null;
+    for (var i = 0; i < (itens || []).length; i++) {
+      if (itens[i].idCustomField === definicao.id) {
+        item = itens[i];
+        break;
+      }
+    }
+
+    var valor = lerValor(item, definicao);
+    if (valor === null || valor === '') return; // vazio, nao mostra badge
+
+    var texto;
+    if (valor === '__MARCADO__') {
+      texto = cfg.textoQuandoMarcado || cfg.campo;
+    } else {
+      if (cfg.mostrarApenas && cfg.mostrarApenas.indexOf(valor) === -1) return;
+      texto = valor;
+    }
+
+    var cor = cfg.cor || 'light-gray';
+    if (cfg.coresPorValor && cfg.coresPorValor[valor]) {
+      cor = cfg.coresPorValor[valor];
+    }
+
+    badges.push({
+      text: texto,
+      color: cor,
+      refresh: CONFIG.intervalo
+    });
+  });
+
+  return badges;
+}
+
+TrelloPowerUp.initialize({
+
+  'card-badges': function (t) {
+    return Promise.all([
+      t.board('customFields'),
+      t.card('customFieldItems')
+    ]).then(function (res) {
+      var board = res[0] || {};
+      var card = res[1] || {};
+      return montarBadges(board.customFields, card.customFieldItems);
+    }).catch(function () {
+      // Se a leitura falhar, nao mostra badge nenhum em vez de quebrar o board.
+      return [];
+    });
+  },
+
+  'card-detail-badges': function (t) {
+    return Promise.all([
+      t.board('customFields'),
+      t.card('customFieldItems')
+    ]).then(function (res) {
+      var board = res[0] || {};
+      var card = res[1] || {};
+      return montarBadges(board.customFields, card.customFieldItems).map(function (b) {
+        return { title: 'Campo', text: b.text, color: b.color, refresh: CONFIG.intervalo };
+      });
+    }).catch(function () {
+      return [];
+    });
+  }
+
+});
+</script>
+</body>
+</html>
