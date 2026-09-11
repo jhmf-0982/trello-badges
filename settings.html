@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configurar badges</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <style>
+    /* A janela de configuracao do Trello e estreita (cerca de 300px).
+       Tudo aqui e empilhado pra caber sem corte. */
+    :root {
+      --borda:  #dfe1e6;
+      --texto:  #172b4d;
+      --suave:  #5e6c84;
+      --linha:  #f4f5f7;
+      --azul:   #0052cc;
+    }
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 12px;
+      font: 400 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--texto);
+      background: #fff;
+    }
+
+    p.intro {
+      margin: 0 0 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--suave);
+    }
+
+    .caixa {
+      border: 1px solid var(--borda);
+      border-radius: 3px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+
+    .cab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--linha);
+    }
+
+    .cab label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 600;
+      cursor: pointer;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .cab label span.nome {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .corpo { padding: 8px 10px; }
+    .corpo.oculto { display: none; }
+
+    .campo-linha {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .campo-linha:last-child { margin-bottom: 0; }
+    .campo-linha label { font-size: 12px; color: var(--suave); cursor: pointer; }
+
+    .op {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+    }
+
+    .op label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex: 1;
+      min-width: 0;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .op label span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .rot {
+      margin: 0 0 6px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--suave);
+    }
+
+    select, input[type=text], input[type=number] {
+      font: inherit;
+      font-size: 12px;
+      padding: 4px 5px;
+      border: 1px solid var(--borda);
+      border-radius: 3px;
+      background: #fff;
+      color: var(--texto);
+      max-width: 100%;
+    }
+
+    select { flex: none; width: 104px; }
+    input[type=text] { width: 100%; }
+    input[type=checkbox] { width: 14px; height: 14px; margin: 0; flex: none; }
+
+    .topo-intervalo {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      color: var(--suave);
+    }
+
+    .topo-intervalo input { width: 58px; }
+
+    .acoes {
+      position: sticky;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 10px;
+      margin-top: 4px;
+      background: #fff;
+      border-top: 1px solid var(--borda);
+    }
+
+    button {
+      font: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 14px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .salvar { background: var(--azul); color: #fff; }
+    .salvar:hover { background: #0047b3; }
+    .aviso { font-size: 11px; color: var(--suave); }
+    .erro { color: #bf2600; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <p class="intro">
+      Marque os campos que devem aparecer na frente dos cards. Campos vazios
+      nunca geram badge.
+    </p>
+
+    <div class="topo-intervalo">
+      <label for="intervalo">Atualizar a cada</label>
+      <input type="number" id="intervalo" min="10" max="600" step="5" value="10">
+      <span>segundos</span>
+    </div>
+
+    <div id="campos"><p class="aviso">Carregando...</p></div>
+
+    <div class="acoes">
+      <button class="salvar" id="salvar">Salvar</button>
+      <span class="aviso" id="status"></span>
+    </div>
+  </div>
+
+<script>
+var t = TrelloPowerUp.iframe();
+
+var CORES = [
+  ['', 'Cor padrão'],
+  ['green', 'Verde'],
+  ['lime', 'Verde-limão'],
+  ['yellow', 'Amarelo'],
+  ['orange', 'Laranja'],
+  ['red', 'Vermelho'],
+  ['pink', 'Rosa'],
+  ['purple', 'Roxo'],
+  ['blue', 'Azul'],
+  ['sky', 'Azul-claro'],
+  ['black', 'Preto']
+];
+
+var TIPOS = {
+  list: 'lista', text: 'texto', number: 'número',
+  date: 'data', checkbox: 'checkbox'
+};
+
+var definicoes = [];
+var config = {};
+
+function selectCores(atual) {
+  var s = document.createElement('select');
+  CORES.forEach(function (c) {
+    var o = document.createElement('option');
+    o.value = c[0];
+    o.textContent = c[1];
+    if (c[0] === (atual || '')) o.selected = true;
+    s.appendChild(o);
+  });
+  return s;
+}
+
+function caixaDeSelecao(marcado) {
+  var c = document.createElement('input');
+  c.type = 'checkbox';
+  c.checked = !!marcado;
+  return c;
+}
+
+function montarTela() {
+  var alvo = document.getElementById('campos');
+  alvo.textContent = '';
+
+  if (!definicoes.length) {
+    alvo.innerHTML = '<p class="aviso">Nenhum campo personalizado neste board.</p>';
+    return;
+  }
+
+  var semConfig = !config.campos;
+  var cfgCampos = config.campos || {};
+
+  definicoes.forEach(function (d) {
+    var cfg = cfgCampos[d.id] || {};
+    var ligado = semConfig ? true : !!cfg.on;
+    var comNome = (typeof cfg.comNome === 'boolean') ? cfg.comNome : (d.type !== 'checkbox');
+
+    var caixa = document.createElement('div');
+    caixa.className = 'caixa';
+
+    /* cabeçalho: liga o campo e escolhe a cor padrão */
+    var cab = document.createElement('div');
+    cab.className = 'cab';
+
+    var lbl = document.createElement('label');
+    var chk = caixaDeSelecao(ligado);
+    chk.className = 'campo-on';
+    chk.dataset.campo = d.id;
+    lbl.appendChild(chk);
+
+    var nome = document.createElement('span');
+    nome.className = 'nome';
+    nome.textContent = d.name;
+    lbl.appendChild(nome);
+    cab.appendChild(lbl);
+
+    var cor = selectCores(cfg.cor);
+    cor.className = 'campo-cor';
+    cor.dataset.campo = d.id;
+    cab.appendChild(cor);
+    caixa.appendChild(cab);
+
+    /* corpo */
+    var corpo = document.createElement('div');
+    corpo.className = 'corpo' + (ligado ? '' : ' oculto');
+
+    // "Etapa: Aprovação" em vez de só "Aprovação"
+    var linhaNome = document.createElement('div');
+    linhaNome.className = 'campo-linha';
+    var lblNome = document.createElement('label');
+    var chkNome = caixaDeSelecao(comNome);
+    chkNome.className = 'campo-comnome';
+    chkNome.dataset.campo = d.id;
+    lblNome.appendChild(chkNome);
+    lblNome.appendChild(document.createTextNode(' Mostrar "' + d.name + ': " antes do valor'));
+    linhaNome.appendChild(lblNome);
+    corpo.appendChild(linhaNome);
+
+    if (d.type === 'list' && d.options && d.options.length) {
+      var rot = document.createElement('p');
+      rot.className = 'rot';
+      rot.textContent = 'Valores';
+      corpo.appendChild(rot);
+
+      d.options.forEach(function (op) {
+        var texto = op.value ? op.value.text : '(vazio)';
+        var cfgOp = (cfg.opcoes && cfg.opcoes[op.id]) || {};
+        var opOn = cfgOp.on === false ? false : true;
+
+        var linha = document.createElement('div');
+        linha.className = 'op';
+
+        var l = document.createElement('label');
+        var c = caixaDeSelecao(opOn);
+        c.className = 'opcao-on';
+        c.dataset.campo = d.id;
+        c.dataset.opcao = op.id;
+        l.appendChild(c);
+        var sp = document.createElement('span');
+        sp.textContent = texto;
+        l.appendChild(sp);
+        linha.appendChild(l);
+
+        var sc = selectCores(cfgOp.cor);
+        sc.className = 'opcao-cor';
+        sc.dataset.campo = d.id;
+        sc.dataset.opcao = op.id;
+        linha.appendChild(sc);
+
+        corpo.appendChild(linha);
+      });
+
+    } else if (d.type === 'checkbox') {
+      var rot2 = document.createElement('p');
+      rot2.className = 'rot';
+      rot2.textContent = 'Texto quando marcado';
+      corpo.appendChild(rot2);
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'campo-texto';
+      inp.dataset.campo = d.id;
+      inp.value = cfg.textoMarcado || d.name;
+      corpo.appendChild(inp);
+    }
+
+    caixa.appendChild(corpo);
+
+    chk.addEventListener('change', function () {
+      corpo.className = 'corpo' + (chk.checked ? '' : ' oculto');
+      ajustar();
+    });
+
+    alvo.appendChild(caixa);
+  });
+}
+
+function coletar() {
+  var novo = { v: 1, campos: {} };
+
+  var i = parseInt(document.getElementById('intervalo').value, 10);
+  if (isNaN(i) || i < 10) i = 10;
+  if (i > 600) i = 600;
+  novo.intervalo = i;
+
+  definicoes.forEach(function (d) {
+    var chk = document.querySelector('.campo-on[data-campo="' + d.id + '"]');
+    if (!chk) return;
+
+    var e = { on: !!chk.checked };
+
+    var cn = document.querySelector('.campo-comnome[data-campo="' + d.id + '"]');
+    if (cn) e.comNome = !!cn.checked;
+
+    var sc = document.querySelector('.campo-cor[data-campo="' + d.id + '"]');
+    if (sc && sc.value) e.cor = sc.value;
+
+    var tx = document.querySelector('.campo-texto[data-campo="' + d.id + '"]');
+    if (tx && tx.value && tx.value !== d.name) e.textoMarcado = tx.value;
+
+    if (d.type === 'list' && d.options) {
+      var ops = {};
+      d.options.forEach(function (op) {
+        var oc = document.querySelector('.opcao-on[data-campo="' + d.id + '"][data-opcao="' + op.id + '"]');
+        var ok = document.querySelector('.opcao-cor[data-campo="' + d.id + '"][data-opcao="' + op.id + '"]');
+        var reg = {};
+        if (oc && !oc.checked) reg.on = false;
+        if (ok && ok.value) reg.cor = ok.value;
+        // Guarda so o que foge do padrao, pra caber no limite do Trello.
+        if (Object.keys(reg).length) ops[op.id] = reg;
+      });
+      if (Object.keys(ops).length) e.opcoes = ops;
+    }
+
+    novo.campos[d.id] = e;
+  });
+
+  return novo;
+}
+
+function ajustar() {
+  try { t.sizeTo('#root'); } catch (e) {}
+}
+
+document.getElementById('salvar').addEventListener('click', function () {
+  var s = document.getElementById('status');
+  s.className = 'aviso';
+  s.textContent = 'Salvando...';
+  t.set('board', 'shared', 'config', coletar())
+    .then(function () {
+      s.textContent = 'Salvo';
+      setTimeout(function () { t.closePopup(); }, 700);
+    })
+    .catch(function (e) {
+      s.className = 'aviso erro';
+      s.textContent = 'Erro: ' + (e && e.message ? e.message : 'não salvou');
+    });
+});
+
+Promise.all([
+  t.board('customFields'),
+  t.get('board', 'shared', 'config')
+]).then(function (res) {
+  definicoes = (res[0] || {}).customFields || [];
+  config = res[1] || {};
+  if (config.intervalo) document.getElementById('intervalo').value = config.intervalo;
+  montarTela();
+  ajustar();
+}).catch(function () {
+  document.getElementById('campos').innerHTML =
+    '<p class="aviso erro">Não consegui carregar os campos do board.</p>';
+  ajustar();
+});
+</script>
+</body>
+</html>
