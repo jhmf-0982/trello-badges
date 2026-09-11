@@ -8,13 +8,35 @@
   <style>
     /* A janela de configuracao do Trello e estreita (cerca de 300px).
        Tudo aqui e empilhado pra caber sem corte. */
-    :root {
-      --borda:  #dfe1e6;
-      --texto:  #172b4d;
-      --suave:  #5e6c84;
-      --linha:  #f4f5f7;
-      --azul:   #0052cc;
+    :root,
+    html[data-color-mode="light"] {
+      color-scheme: light;
+      --borda: #dfe1e6;
+      --texto: #172b4d;
+      --suave: #5e6c84;
+      --linha: #f4f5f7;
+      --fundo: #ffffff;
+      --campo: #ffffff;
+      --azul: #0c66e4;
+      --azul-hover: #0055cc;
+      --texto-botao: #ffffff;
+      --erro: #ae2e24;
     }
+
+    html[data-color-mode="dark"] {
+      color-scheme: dark;
+      --borda: #454f59;
+      --texto: #b6c2cf;
+      --suave: #9fadbc;
+      --linha: #22272b;
+      --fundo: #1d2125;
+      --campo: #22272b;
+      --azul: #579dff;
+      --azul-hover: #85b8ff;
+      --texto-botao: #1d2125;
+      --erro: #fd9891;
+    }
+
     * { box-sizing: border-box; }
 
     body {
@@ -22,14 +44,7 @@
       padding: 12px;
       font: 400 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       color: var(--texto);
-      background: #fff;
-    }
-
-    p.intro {
-      margin: 0 0 12px;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--suave);
+      background: var(--fundo);
     }
 
     .caixa {
@@ -100,12 +115,14 @@
     }
 
     .rot {
-      margin: 0 0 6px;
+      margin: 0 0 1px;
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
       color: var(--suave);
     }
+
+    .rot + .op { padding-top: 1px; }
 
     select, input[type=text], input[type=number] {
       font: inherit;
@@ -113,7 +130,7 @@
       padding: 4px 5px;
       border: 1px solid var(--borda);
       border-radius: 3px;
-      background: #fff;
+      background: var(--campo);
       color: var(--texto);
       max-width: 100%;
     }
@@ -141,7 +158,7 @@
       gap: 8px;
       padding-top: 10px;
       margin-top: 4px;
-      background: #fff;
+      background: var(--fundo);
       border-top: 1px solid var(--borda);
     }
 
@@ -155,19 +172,14 @@
       cursor: pointer;
     }
 
-    .salvar { background: var(--azul); color: #fff; }
-    .salvar:hover { background: #0047b3; }
+    .salvar { background: var(--azul); color: var(--texto-botao); }
+    .salvar:hover { background: var(--azul-hover); }
     .aviso { font-size: 11px; color: var(--suave); }
-    .erro { color: #bf2600; }
+    .erro { color: var(--erro); }
   </style>
 </head>
 <body>
   <div id="root">
-    <p class="intro">
-      Marque os campos que devem aparecer na frente dos cards. Campos vazios
-      nunca geram badge.
-    </p>
-
     <div class="topo-intervalo">
       <label for="intervalo">Atualizar a cada</label>
       <input type="number" id="intervalo" min="10" max="600" step="5" value="10">
