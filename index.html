@@ -57,17 +57,21 @@ function lerValor(item, definicao) {
   var v = item.value;
   if (!v) return null;
 
-  if (typeof v.checked !== 'undefined') {
-    var m = (v.checked === true || v.checked === 'true');
-    return m ? { texto: null, idOpcao: null, marcado: true } : null;
+  // O Power-Up do Trello devolve todos os campos do value preenchidos
+  // (checked, date, number, text), a maioria com null. Precisamos achar
+  // o que nao e null. A ordem importa: checked so conta quando e "true"
+  // (string ou boolean), nao quando e null.
+
+  if (v.checked === true || v.checked === 'true') {
+    return { texto: null, idOpcao: null, marcado: true };
   }
-  if (typeof v.text !== 'undefined' && v.text !== '') {
+  if (v.text !== null && v.text !== undefined && v.text !== '') {
     return { texto: v.text, idOpcao: null, marcado: false };
   }
-  if (typeof v.number !== 'undefined' && v.number !== null) {
+  if (v.number !== null && v.number !== undefined) {
     return { texto: String(v.number), idOpcao: null, marcado: false };
   }
-  if (typeof v.date !== 'undefined') {
+  if (v.date !== null && v.date !== undefined) {
     var d;
     try { d = new Date(v.date).toLocaleDateString('pt-BR'); } catch (e) { d = String(v.date); }
     return { texto: d, idOpcao: null, marcado: false };
@@ -154,12 +158,6 @@ function carregar(t) {
   ]).then(function (res) {
     var board = res[0] || {};
     var card = res[1] || {};
-
-    // LOG TEMPORARIO - remover depois de diagnosticar
-    console.log('[badges-debug] customFields:', JSON.stringify(board.customFields));
-    console.log('[badges-debug] customFieldItems:', JSON.stringify(card.customFieldItems));
-    console.log('[badges-debug] config:', JSON.stringify(res[2]));
-
     return montarBadges(board.customFields, card.customFieldItems, res[2]);
   });
 }
