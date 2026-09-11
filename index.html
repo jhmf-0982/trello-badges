@@ -154,6 +154,12 @@ function carregar(t) {
   ]).then(function (res) {
     var board = res[0] || {};
     var card = res[1] || {};
+
+    // LOG TEMPORARIO - remover depois de diagnosticar
+    console.log('[badges-debug] customFields:', JSON.stringify(board.customFields));
+    console.log('[badges-debug] customFieldItems:', JSON.stringify(card.customFieldItems));
+    console.log('[badges-debug] config:', JSON.stringify(res[2]));
+
     return montarBadges(board.customFields, card.customFieldItems, res[2]);
   });
 }
