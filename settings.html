@@ -161,7 +161,7 @@
     .rot.valores { font-weight: 700; }
     .rot + .op { padding-top: 1px; }
 
-    select, input[type=text], input[type=number] {
+    select, input[type=text] {
       font: inherit;
       font-size: 12px;
       padding: 4px 5px;
@@ -175,17 +175,6 @@
     select { flex: none; width: 104px; }
     input[type=text] { width: 100%; }
     input[type=checkbox] { width: 14px; height: 14px; margin: 0; flex: none; }
-
-    .topo-intervalo {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      margin-bottom: 12px;
-      font-size: 12px;
-      color: var(--suave);
-    }
-
-    .topo-intervalo input { width: 58px; }
 
     .acoes {
       display: flex;
@@ -215,12 +204,6 @@
 </head>
 <body>
   <div id="root">
-    <div class="topo-intervalo">
-      <label for="intervalo">Atualizar a cada</label>
-      <input type="number" id="intervalo" min="10" max="600" step="5" value="10">
-      <span>segundos</span>
-    </div>
-
     <div id="campos"><p class="aviso">Carregando...</p></div>
 
     <div class="acoes">
@@ -438,11 +421,6 @@ function montarTela() {
 function coletar() {
   var novo = { v: 1, campos: {} };
 
-  var i = parseInt(document.getElementById('intervalo').value, 10);
-  if (isNaN(i) || i < 10) i = 10;
-  if (i > 600) i = 600;
-  novo.intervalo = i;
-
   definicoes.forEach(function (d) {
     var chk = document.querySelector('.campo-on[data-campo="' + d.id + '"]');
     if (!chk) return;
@@ -513,7 +491,6 @@ Promise.all([
 ]).then(function (res) {
   definicoes = (res[0] || {}).customFields || [];
   config = res[1] || {};
-  if (config.intervalo) document.getElementById('intervalo').value = config.intervalo;
   montarTela();
   ajustar();
 }).catch(function () {

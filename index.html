@@ -7,18 +7,18 @@
 </head>
 <body>
 <script>
-/* ==========================================================================
+/* ========================================================================== 
    Badges Interfood - conector
 
    Mantem os badges de campo personalizado atualizados na frente dos cards.
    Os badges nativos do Trello nao redesenham quando uma automacao muda o
-   campo; estes redesenham sozinhos no intervalo configurado.
+   campo; estes redesenham sozinhos a cada 10 segundos.
 
    Este arquivo NAO precisa ser editado. Toda a configuracao e feita pela
    tela de configuracao dentro do Trello.
    ========================================================================== */
 
-var INTERVALO_PADRAO = 10;
+var INTERVALO_BADGES = 10;
 
 // Cores sugeridas enquanto o Power-Up nunca foi configurado. Depois da
 // primeira vez que voce salvar, isto deixa de ser usado.
@@ -93,7 +93,6 @@ function montarBadges(definicoes, itens, config) {
 
   var semConfig = !config.campos;
   var cfgCampos = config.campos || {};
-  var intervalo = config.intervalo || INTERVALO_PADRAO;
 
   var badges = [];
 
@@ -143,12 +142,12 @@ function montarBadges(definicoes, itens, config) {
       ? definicao.name + ': ' + valor
       : valor;
 
-    var badge = { text: texto, refresh: intervalo };
+    var badge = { text: texto, refresh: INTERVALO_BADGES };
     // Cor so vai no objeto se existir. Mandar um valor invalido faz o
     // Trello ignorar o badge inteiro.
     if (cor) badge.color = cor;
 
-    badges.push({ badge: badge, nome: definicao.name, valor: valor, cor: cor, intervalo: intervalo });
+    badges.push({ badge: badge, nome: definicao.name, valor: valor, cor: cor });
   });
 
   return badges;
@@ -180,7 +179,7 @@ TrelloPowerUp.initialize({
   'card-detail-badges': function (t) {
     return carregar(t).then(function (lista) {
       return lista.map(function (x) {
-        var b = { title: x.nome, text: x.valor, refresh: x.intervalo };
+        var b = { title: x.nome, text: x.valor, refresh: INTERVALO_BADGES };
         if (x.cor) b.color = x.cor;
         return b;
       });
