@@ -189,6 +189,23 @@ function criarBadgeFrente(t, definicao) {
   };
 }
 
+// Badge temporario de diagnostico. Nao le nenhum custom field.
+// Se o Trello estiver respeitando refresh: 10 em badges dinamicos,
+// o horario abaixo deve mudar sozinho aproximadamente a cada 10 segundos.
+function criarBadgeDiagnostico() {
+  return {
+    dynamic: function () {
+      var agora = new Date();
+      var horario = agora.toLocaleTimeString('pt-BR', { hour12: false });
+      return {
+        text: 'TESTE ' + horario,
+        color: 'blue',
+        refresh: INTERVALO_BADGES
+      };
+    }
+  };
+}
+
 function criarBadgeDetalhe(t, definicao) {
   return {
     dynamic: function () {
@@ -236,11 +253,13 @@ TrelloPowerUp.initialize({
   // Badges na frente do card, na visao do board.
   'card-badges': function (t) {
     return carregarDefinicoes(t).then(function (definicoes) {
-      return definicoes.map(function (definicao) {
+      var badges = [criarBadgeDiagnostico()];
+      return badges.concat(definicoes.map(function (definicao) {
         return criarBadgeFrente(t, definicao);
-      });
+      }));
     }).catch(function () {
-      return [];
+      // Mesmo se a leitura das definicoes falhar, mantem o badge de teste.
+      return [criarBadgeDiagnostico()];
     });
   },
 
