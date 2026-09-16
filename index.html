@@ -11,8 +11,8 @@
    Badges Interfood - conector
 
    Mantem os badges de campo personalizado atualizados na frente dos cards.
-   Os badges nativos do Trello nao redesenham quando uma automacao muda o
-   campo; estes redesenham sozinhos a cada 10 segundos.
+   Cada badge e dinamico: o Trello chama novamente a funcao do badge a cada
+   10 segundos, e o Power-Up rele os customFieldItems atuais do card.
 
    Este arquivo NAO precisa ser editado. Toda a configuracao e feita pela
    tela de configuracao dentro do Trello.
@@ -61,7 +61,6 @@ function lerValor(item, definicao) {
   // (checked, date, number, text), a maioria com null. Precisamos achar
   // o que nao e null. A ordem importa: checked so conta quando e "true"
   // (string ou boolean), nao quando e null.
-
   if (v.checked === true || v.checked === 'true') {
     return { texto: null, idOpcao: null, marcado: true };
   }
@@ -86,82 +85,149 @@ function usarNome(cfg, definicao) {
   return definicao.type !== 'checkbox';
 }
 
-function montarBadges(definicoes, itens, config) {
-  definicoes = definicoes || [];
+// Monta os dados de um unico campo. Retorna null quando o campo deve ficar
+// oculto ou esta sem valor.
+function montarCampo(definicao, itens, config) {
   itens = itens || [];
   config = config || {};
 
   var semConfig = !config.campos;
   var cfgCampos = config.campos || {};
+  var cfg = cfgCampos[definicao.id];
 
-  var badges = [];
+  // Sem configuracao salva, mostra todos os campos.
+  // Com configuracao salva, mostra so os que estao marcados.
+  if (semConfig) cfg = { on: true };
+  else if (!cfg || !cfg.on) return null;
 
-  definicoes.forEach(function (definicao) {
-    if (!definicao || !definicao.id) return;
-
-    var cfg = cfgCampos[definicao.id];
-
-    // Sem configuracao salva, mostra todos os campos.
-    // Com configuracao salva, mostra so os que estao marcados.
-    if (semConfig) cfg = { on: true };
-    else if (!cfg || !cfg.on) return;
-
-    var item = null;
-    for (var i = 0; i < itens.length; i++) {
-      if (itens[i].idCustomField === definicao.id) { item = itens[i]; break; }
+  var item = null;
+  for (var i = 0; i < itens.length; i++) {
+    if (itens[i].idCustomField === definicao.id) {
+      item = itens[i];
+      break;
     }
+  }
 
-    var lido = lerValor(item, definicao);
-    if (!lido) return;
+  var lido = lerValor(item, definicao);
+  if (!lido) return null;
 
-    var valor;
-    if (lido.marcado) {
-      valor = cfg.textoMarcado || definicao.name;
-    } else {
-      if (!lido.texto) return;
-      // Opcao desmarcada na configuracao nao gera badge.
-      if (lido.idOpcao && cfg.opcoes && cfg.opcoes[lido.idOpcao] &&
-          cfg.opcoes[lido.idOpcao].on === false) {
-        return;
-      }
-      valor = lido.texto;
+  var valor;
+  if (lido.marcado) {
+    valor = cfg.textoMarcado || definicao.name;
+  } else {
+    if (!lido.texto) return null;
+
+    // Opcao desmarcada na configuracao nao gera badge.
+    if (lido.idOpcao && cfg.opcoes && cfg.opcoes[lido.idOpcao] &&
+        cfg.opcoes[lido.idOpcao].on === false) {
+      return null;
     }
+    valor = lido.texto;
+  }
 
-    // A cor e escolhida pelo valor cru, nao pelo texto ja montado.
-    var cor = cfg.cor || null;
-    if (lido.idOpcao && cfg.opcoes && cfg.opcoes[lido.idOpcao] && cfg.opcoes[lido.idOpcao].cor) {
-      cor = cfg.opcoes[lido.idOpcao].cor;
-    }
-    if (!cor && CORES_SUGERIDAS[valor]) cor = CORES_SUGERIDAS[valor];
+  // A cor e escolhida pelo valor cru, nao pelo texto ja montado.
+  var cor = cfg.cor || null;
+  if (lido.idOpcao && cfg.opcoes && cfg.opcoes[lido.idOpcao] && cfg.opcoes[lido.idOpcao].cor) {
+    cor = cfg.opcoes[lido.idOpcao].cor;
+  }
+  if (!cor && CORES_SUGERIDAS[valor]) cor = CORES_SUGERIDAS[valor];
 
-    // Compatibilidade com configuracoes antigas: black nao e uma cor valida
-    // para card-badges do Power-Up. Usa light-gray no lugar.
-    if (cor === 'black') cor = 'light-gray';
+  // Compatibilidade com configuracoes antigas: black nao e uma cor valida
+  // para card-badges do Power-Up. Usa light-gray no lugar.
+  if (cor === 'black') cor = 'light-gray';
 
-    var texto = (usarNome(cfg, definicao) && !lido.marcado)
-      ? definicao.name + ': ' + valor
-      : valor;
+  var texto = (usarNome(cfg, definicao) && !lido.marcado)
+    ? definicao.name + ': ' + valor
+    : valor;
 
-    var badge = { text: texto, refresh: INTERVALO_BADGES };
-    // Cor so vai no objeto se existir. Mandar um valor invalido faz o
-    // Trello ignorar o badge inteiro.
-    if (cor) badge.color = cor;
-
-    badges.push({ badge: badge, nome: definicao.name, valor: valor, cor: cor });
-  });
-
-  return badges;
+  return {
+    nome: definicao.name,
+    valor: valor,
+    cor: cor,
+    texto: texto
+  };
 }
 
-function carregar(t) {
+// O resultado dinamico precisa conter refresh. O objeto externo contem apenas
+// a funcao dynamic, conforme a API oficial do Trello.
+function badgeVazio() {
+  // Sem text/icon o Trello nao desenha conteudo visivel, mas mantem o
+  // refresh do badge dinamico ativo para detectar quando o campo ganhar valor.
+  return { refresh: INTERVALO_BADGES };
+}
+
+// Rele o valor atual do card em CADA ciclo dinamico. A configuracao tambem e
+// relida para que alteracoes na tela de settings se propaguem sem depender de
+// uma recarga completa do board.
+function carregarCampoAtual(t, definicao) {
   return Promise.all([
-    t.board('customFields'),
     t.card('customFieldItems'),
     t.get('board', 'shared', 'config')
   ]).then(function (res) {
+    var card = res[0] || {};
+    return montarCampo(definicao, card.customFieldItems, res[1]);
+  });
+}
+
+function criarBadgeFrente(t, definicao) {
+  return {
+    dynamic: function () {
+      return carregarCampoAtual(t, definicao).then(function (campo) {
+        if (!campo) return badgeVazio();
+
+        var badge = {
+          text: campo.texto,
+          refresh: INTERVALO_BADGES
+        };
+        if (campo.cor) badge.color = campo.cor;
+        return badge;
+      }).catch(function () {
+        // Mantem o ciclo vivo mesmo se uma leitura pontual falhar.
+        return badgeVazio();
+      });
+    }
+  };
+}
+
+function criarBadgeDetalhe(t, definicao) {
+  return {
+    dynamic: function () {
+      return carregarCampoAtual(t, definicao).then(function (campo) {
+        if (!campo) return badgeVazio();
+
+        var badge = {
+          title: campo.nome,
+          text: campo.valor,
+          refresh: INTERVALO_BADGES
+        };
+        if (campo.cor) badge.color = campo.cor;
+        return badge;
+      }).catch(function () {
+        return badgeVazio();
+      });
+    }
+  };
+}
+
+// O conjunto de custom fields e carregado uma vez para criar um slot dinamico
+// para cada campo habilitado na configuracao. O valor de cada campo e relido
+// a cada 10 segundos. Campos habilitados mas vazios mantem um slot invisivel,
+// o que permite que aparecam assim que ganharem valor.
+function carregarDefinicoes(t) {
+  return Promise.all([
+    t.board('customFields'),
+    t.get('board', 'shared', 'config')
+  ]).then(function (res) {
     var board = res[0] || {};
-    var card = res[1] || {};
-    return montarBadges(board.customFields, card.customFieldItems, res[2]);
+    var definicoes = board.customFields || [];
+    var config = res[1] || {};
+
+    if (!config.campos) return definicoes;
+
+    return definicoes.filter(function (definicao) {
+      var cfg = config.campos[definicao.id];
+      return !!(cfg && cfg.on);
+    });
   });
 }
 
@@ -169,21 +235,24 @@ TrelloPowerUp.initialize({
 
   // Badges na frente do card, na visao do board.
   'card-badges': function (t) {
-    return carregar(t).then(function (lista) {
-      return lista.map(function (x) { return x.badge; });
-    }).catch(function () { return []; });
+    return carregarDefinicoes(t).then(function (definicoes) {
+      return definicoes.map(function (definicao) {
+        return criarBadgeFrente(t, definicao);
+      });
+    }).catch(function () {
+      return [];
+    });
   },
 
-  // Badges dentro do card aberto. Aqui o Trello ja mostra um titulo ao lado,
-  // entao o nome do campo vai no titulo e o valor sozinho no texto.
+  // Badges dentro do card aberto.
   'card-detail-badges': function (t) {
-    return carregar(t).then(function (lista) {
-      return lista.map(function (x) {
-        var b = { title: x.nome, text: x.valor, refresh: INTERVALO_BADGES };
-        if (x.cor) b.color = x.cor;
-        return b;
+    return carregarDefinicoes(t).then(function (definicoes) {
+      return definicoes.map(function (definicao) {
+        return criarBadgeDetalhe(t, definicao);
       });
-    }).catch(function () { return []; });
+    }).catch(function () {
+      return [];
+    });
   },
 
   'show-settings': function (t) {
