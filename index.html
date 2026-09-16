@@ -142,6 +142,22 @@ function badgeVazio() {
   return { refresh: INTERVALO_BADGES };
 }
 
+function criarBadgeDiagnostico() {
+  return {
+    dynamic: function () {
+      var agora = new Date();
+      var horario = agora.toLocaleTimeString('pt-BR', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+      return {
+        text: 'TESTE ' + horario,
+        color: 'blue',
+        refresh: INTERVALO_BADGES
+      };
+    }
+  };
+}
+
 function normalizarToken(token) {
   if (!token) return null;
   token = String(token);
@@ -328,10 +344,21 @@ function carregarDefinicoes(t) {
 TrelloPowerUp.initialize({
 
   'card-badges': function (t) {
-    return carregarDefinicoes(t).then(function (definicoes) {
-      return definicoes.map(function (definicao) {
+    return Promise.all([
+      carregarDefinicoes(t),
+      t.get('board', 'shared', 'config')
+    ]).then(function (res) {
+      var definicoes = res[0] || [];
+      var config = res[1] || {};
+      var badges = definicoes.map(function (definicao) {
         return criarBadgeFrente(t, definicao);
       });
+
+      if (config.mostrarBadgeTeste === true) {
+        badges.unshift(criarBadgeDiagnostico());
+      }
+
+      return badges;
     }).catch(function () {
       return [];
     });

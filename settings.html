@@ -245,6 +245,17 @@
   <div id="root">
     <div id="campos"><p class="aviso">Carregando...</p></div>
 
+    <div class="api-caixa" id="diagnosticoCaixa">
+      <p class="api-titulo">Diagnóstico</p>
+      <div class="campo-linha">
+        <label>
+          <input type="checkbox" id="mostrarBadgeTeste">
+          Mostrar badge de teste
+        </label>
+      </div>
+      <div class="api-status">Mostra "TESTE HH:MM:SS" na frente dos cards para conferir o refresh de 10 s.</div>
+    </div>
+
     <div class="api-caixa" id="apiCaixa">
       <p class="api-titulo">Atualização via API</p>
       <div id="apiConteudo"></div>
@@ -466,7 +477,12 @@ function montarTela() {
 }
 
 function coletar() {
-  var novo = { v: 1, campos: {} };
+  var teste = document.getElementById('mostrarBadgeTeste');
+  var novo = {
+    v: 2,
+    mostrarBadgeTeste: !!(teste && teste.checked),
+    campos: {}
+  };
 
   definicoes.forEach(function (d) {
     var chk = document.querySelector('.campo-on[data-campo="' + d.id + '"]');
@@ -657,6 +673,11 @@ Promise.all([
   config = res[1] || {};
   trelloApiKey = res[2] || null;
   trelloReadToken = res[3] || null;
+  var teste = document.getElementById('mostrarBadgeTeste');
+  if (teste) {
+    teste.checked = config.mostrarBadgeTeste === true;
+    teste.addEventListener('change', ajustar);
+  }
   montarTela();
   montarApiAuth();
   ajustar();
