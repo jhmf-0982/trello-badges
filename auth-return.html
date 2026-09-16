@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Autorização concluída</title>
+</head>
+<body>
+<script>
+(function () {
+  var params = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+  var token = params.get('token');
+  var error = params.get('error');
+
+  if (token) {
+    try {
+      if (window.opener && typeof window.opener.authorize === 'function') {
+        window.opener.authorize(token);
+      } else {
+        localStorage.setItem('token', token);
+      }
+    } catch (e) {
+      localStorage.setItem('token', token);
+    }
+  } else if (error) {
+    try {
+      if (window.opener && typeof window.opener.authorize === 'function') {
+        window.opener.authorize('');
+      }
+    } catch (e2) {}
+  }
+
+  setTimeout(function () { window.close(); }, 500);
+})();
+</script>
+</body>
+</html>

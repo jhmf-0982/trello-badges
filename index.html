@@ -10,18 +10,25 @@
 /* ========================================================================== 
    Badges Interfood - conector
 
-   Mantem os badges de campo personalizado atualizados na frente dos cards.
-   Cada badge e dinamico: o Trello chama novamente a funcao do badge a cada
-   10 segundos, e o Power-Up rele os customFieldItems atuais do card.
+   Os badges sao dinamicos e atualizam a cada 10 segundos.
+   Quando o membro autoriza a leitura pela REST API, os valores dos Custom
+   Fields sao buscados diretamente do servidor do Trello, evitando o cache
+   desatualizado de t.card('customFieldItems').
 
-   Este arquivo NAO precisa ser editado. Toda a configuracao e feita pela
-   tela de configuracao dentro do Trello.
+   Sem autorizacao, o Power-Up continua funcionando com a leitura nativa como
+   fallback, mantendo o comportamento anterior.
    ========================================================================== */
 
 var INTERVALO_BADGES = 10;
+var CACHE_REST_MS = 8500;
+var cacheBoard = {
+  idBoard: null,
+  timestamp: 0,
+  promise: null,
+  cards: null
+};
 
-// Cores sugeridas enquanto o Power-Up nunca foi configurado. Depois da
-// primeira vez que voce salvar, isto deixa de ser usado.
+// Cores sugeridas enquanto o Power-Up nunca foi configurado.
 var CORES_SUGERIDAS = {
   'Correção': 'red',
   'Revisão': 'orange',
@@ -34,9 +41,6 @@ var CORES_SUGERIDAS = {
   'Urgente': 'red'
 };
 
-// Le o valor de um item de campo personalizado, cobrindo os tipos que o
-// Trello suporta: lista, texto, numero, data e checkbox.
-// Devolve { texto, idOpcao, marcado } ou null quando o campo esta vazio.
 function lerValor(item, definicao) {
   if (!item) return null;
 
@@ -57,10 +61,6 @@ function lerValor(item, definicao) {
   var v = item.value;
   if (!v) return null;
 
-  // O Power-Up do Trello devolve todos os campos do value preenchidos
-  // (checked, date, number, text), a maioria com null. Precisamos achar
-  // o que nao e null. A ordem importa: checked so conta quando e "true"
-  // (string ou boolean), nao quando e null.
   if (v.checked === true || v.checked === 'true') {
     return { texto: null, idOpcao: null, marcado: true };
   }
@@ -72,21 +72,18 @@ function lerValor(item, definicao) {
   }
   if (v.date !== null && v.date !== undefined) {
     var d;
-    try { d = new Date(v.date).toLocaleDateString('pt-BR'); } catch (e) { d = String(v.date); }
+    try { d = new Date(v.date).toLocaleDateString('pt-BR'); }
+    catch (e) { d = String(v.date); }
     return { texto: d, idOpcao: null, marcado: false };
   }
   return null;
 }
 
-// Decide se o nome do campo entra antes do valor ("Etapa: Aprovação").
-// Em checkbox nao entra por padrao, senao viraria "Pendência: Pendência".
 function usarNome(cfg, definicao) {
   if (cfg && typeof cfg.comNome === 'boolean') return cfg.comNome;
   return definicao.type !== 'checkbox';
 }
 
-// Monta os dados de um unico campo. Retorna null quando o campo deve ficar
-// oculto ou esta sem valor.
 function montarCampo(definicao, itens, config) {
   itens = itens || [];
   config = config || {};
@@ -95,8 +92,6 @@ function montarCampo(definicao, itens, config) {
   var cfgCampos = config.campos || {};
   var cfg = cfgCampos[definicao.id];
 
-  // Sem configuracao salva, mostra todos os campos.
-  // Com configuracao salva, mostra so os que estao marcados.
   if (semConfig) cfg = { on: true };
   else if (!cfg || !cfg.on) return null;
 
@@ -117,7 +112,6 @@ function montarCampo(definicao, itens, config) {
   } else {
     if (!lido.texto) return null;
 
-    // Opcao desmarcada na configuracao nao gera badge.
     if (lido.idOpcao && cfg.opcoes && cfg.opcoes[lido.idOpcao] &&
         cfg.opcoes[lido.idOpcao].on === false) {
       return null;
@@ -125,15 +119,11 @@ function montarCampo(definicao, itens, config) {
     valor = lido.texto;
   }
 
-  // A cor e escolhida pelo valor cru, nao pelo texto ja montado.
   var cor = cfg.cor || null;
   if (lido.idOpcao && cfg.opcoes && cfg.opcoes[lido.idOpcao] && cfg.opcoes[lido.idOpcao].cor) {
     cor = cfg.opcoes[lido.idOpcao].cor;
   }
   if (!cor && CORES_SUGERIDAS[valor]) cor = CORES_SUGERIDAS[valor];
-
-  // Compatibilidade com configuracoes antigas: black nao e uma cor valida
-  // para card-badges do Power-Up. Usa light-gray no lugar.
   if (cor === 'black') cor = 'light-gray';
 
   var texto = (usarNome(cfg, definicao) && !lido.marcado)
@@ -148,24 +138,133 @@ function montarCampo(definicao, itens, config) {
   };
 }
 
-// O resultado dinamico precisa conter refresh. O objeto externo contem apenas
-// a funcao dynamic, conforme a API oficial do Trello.
 function badgeVazio() {
-  // Sem text/icon o Trello nao desenha conteudo visivel, mas mantem o
-  // refresh do badge dinamico ativo para detectar quando o campo ganhar valor.
   return { refresh: INTERVALO_BADGES };
 }
 
-// Rele o valor atual do card em CADA ciclo dinamico. A configuracao tambem e
-// relida para que alteracoes na tela de settings se propaguem sem depender de
-// uma recarga completa do board.
-function carregarCampoAtual(t, definicao) {
+function normalizarToken(token) {
+  if (!token) return null;
+  token = String(token);
+
+  // t.authorize pode devolver apenas o token ou o fragmento #token=...
+  if (token.charAt(0) === '#') {
+    var params = new URLSearchParams(token.slice(1));
+    return params.get('token') || null;
+  }
+  if (token.indexOf('token=') === 0) {
+    var params2 = new URLSearchParams(token);
+    return params2.get('token') || null;
+  }
+  return token;
+}
+
+function limparCacheRest() {
+  cacheBoard.idBoard = null;
+  cacheBoard.timestamp = 0;
+  cacheBoard.promise = null;
+  cacheBoard.cards = null;
+}
+
+function buscarBoardViaRest(t) {
+  var agora = Date.now();
+
   return Promise.all([
-    t.card('customFieldItems'),
-    t.get('board', 'shared', 'config')
+    t.board('id'),
+    t.get('board', 'shared', 'trelloApiKey'),
+    t.get('member', 'private', 'trelloReadToken')
+  ]).then(function (res) {
+    var board = res[0] || {};
+    var idBoard = board.id;
+    var apiKey = res[1];
+    var token = normalizarToken(res[2]);
+
+    if (!idBoard || !apiKey || !token) return null;
+
+    if (cacheBoard.idBoard === idBoard && cacheBoard.cards &&
+        (agora - cacheBoard.timestamp) < CACHE_REST_MS) {
+      return cacheBoard.cards;
+    }
+
+    if (cacheBoard.idBoard === idBoard && cacheBoard.promise &&
+        (agora - cacheBoard.timestamp) < CACHE_REST_MS) {
+      return cacheBoard.promise;
+    }
+
+    var url = 'https://api.trello.com/1/boards/' + encodeURIComponent(idBoard) +
+      '/cards?fields=id&customFieldItems=true&key=' + encodeURIComponent(apiKey) +
+      '&token=' + encodeURIComponent(token) + '&_=' + agora;
+
+    cacheBoard.idBoard = idBoard;
+    cacheBoard.timestamp = agora;
+    cacheBoard.promise = fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'omit',
+      headers: { 'Accept': 'application/json' }
+    }).then(function (resp) {
+      if (!resp.ok) {
+        var erro = new Error('REST ' + resp.status);
+        erro.status = resp.status;
+        throw erro;
+      }
+      return resp.json();
+    }).then(function (cards) {
+      var mapa = {};
+      (cards || []).forEach(function (card) {
+        mapa[card.id] = card.customFieldItems || [];
+      });
+      cacheBoard.cards = mapa;
+      cacheBoard.promise = null;
+      cacheBoard.timestamp = Date.now();
+      return mapa;
+    }).catch(function (erro) {
+      cacheBoard.promise = null;
+      cacheBoard.cards = null;
+
+      // Token invalido/expirado: remove a autorizacao privada para o Trello
+      // voltar a oferecer "Authorize Account" ao membro.
+      if (erro && (erro.status === 401 || erro.status === 403)) {
+        t.remove('member', 'private', 'trelloReadToken').catch(function () {});
+      }
+      throw erro;
+    });
+
+    return cacheBoard.promise;
+  });
+}
+
+function carregarItensAtualizados(t) {
+  return Promise.all([
+    t.card('id'),
+    buscarBoardViaRest(t)
   ]).then(function (res) {
     var card = res[0] || {};
-    return montarCampo(definicao, card.customFieldItems, res[1]);
+    var mapa = res[1];
+
+    if (mapa && card.id && Object.prototype.hasOwnProperty.call(mapa, card.id)) {
+      return mapa[card.id];
+    }
+
+    // Fallback: preserva o funcionamento para membros ainda nao autorizados
+    // ou em caso de falha temporaria da REST API.
+    return t.card('customFieldItems').then(function (fallback) {
+      return (fallback || {}).customFieldItems || [];
+    });
+  }).catch(function () {
+    return t.card('customFieldItems').then(function (fallback) {
+      return (fallback || {}).customFieldItems || [];
+    }).catch(function () {
+      return [];
+    });
+  });
+}
+
+function carregarCampoAtual(t, definicao) {
+  return Promise.all([
+    carregarItensAtualizados(t),
+    t.get('board', 'shared', 'config')
+  ]).then(function (res) {
+    return montarCampo(definicao, res[0], res[1]);
   });
 }
 
@@ -182,26 +281,8 @@ function criarBadgeFrente(t, definicao) {
         if (campo.cor) badge.color = campo.cor;
         return badge;
       }).catch(function () {
-        // Mantem o ciclo vivo mesmo se uma leitura pontual falhar.
         return badgeVazio();
       });
-    }
-  };
-}
-
-// Badge temporario de diagnostico. Nao le nenhum custom field.
-// Se o Trello estiver respeitando refresh: 10 em badges dinamicos,
-// o horario abaixo deve mudar sozinho aproximadamente a cada 10 segundos.
-function criarBadgeDiagnostico() {
-  return {
-    dynamic: function () {
-      var agora = new Date();
-      var horario = agora.toLocaleTimeString('pt-BR', { hour12: false });
-      return {
-        text: 'TESTE ' + horario,
-        color: 'blue',
-        refresh: INTERVALO_BADGES
-      };
     }
   };
 }
@@ -226,10 +307,6 @@ function criarBadgeDetalhe(t, definicao) {
   };
 }
 
-// O conjunto de custom fields e carregado uma vez para criar um slot dinamico
-// para cada campo habilitado na configuracao. O valor de cada campo e relido
-// a cada 10 segundos. Campos habilitados mas vazios mantem um slot invisivel,
-// o que permite que aparecam assim que ganharem valor.
 function carregarDefinicoes(t) {
   return Promise.all([
     t.board('customFields'),
@@ -250,20 +327,16 @@ function carregarDefinicoes(t) {
 
 TrelloPowerUp.initialize({
 
-  // Badges na frente do card, na visao do board.
   'card-badges': function (t) {
     return carregarDefinicoes(t).then(function (definicoes) {
-      var badges = [criarBadgeDiagnostico()];
-      return badges.concat(definicoes.map(function (definicao) {
+      return definicoes.map(function (definicao) {
         return criarBadgeFrente(t, definicao);
-      }));
+      });
     }).catch(function () {
-      // Mesmo se a leitura das definicoes falhar, mantem o badge de teste.
-      return [criarBadgeDiagnostico()];
+      return [];
     });
   },
 
-  // Badges dentro do card aberto.
   'card-detail-badges': function (t) {
     return carregarDefinicoes(t).then(function (definicoes) {
       return definicoes.map(function (definicao) {
@@ -271,6 +344,27 @@ TrelloPowerUp.initialize({
       });
     }).catch(function () {
       return [];
+    });
+  },
+
+  // Faz o Trello oferecer "Authorize Account" enquanto este membro ainda nao
+  // tiver concedido leitura REST para o Power-Up.
+  'authorization-status': function (t) {
+    return Promise.all([
+      t.get('board', 'shared', 'trelloApiKey'),
+      t.get('member', 'private', 'trelloReadToken')
+    ]).then(function (res) {
+      return { authorized: !!(res[0] && res[1]) };
+    }).catch(function () {
+      return { authorized: false };
+    });
+  },
+
+  'show-authorization': function (t) {
+    return t.popup({
+      title: 'Autorizar atualização',
+      url: t.signUrl('./authorize.html'),
+      height: 230
     });
   },
 

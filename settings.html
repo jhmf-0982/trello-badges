@@ -176,6 +176,45 @@
     input[type=text] { width: 100%; }
     input[type=checkbox] { width: 14px; height: 14px; margin: 0; flex: none; }
 
+    .api-caixa {
+      border: 1px solid var(--borda);
+      border-radius: 3px;
+      margin-top: 8px;
+      padding: 8px 10px;
+    }
+
+    .api-titulo {
+      margin: 0 0 6px;
+      font-weight: 600;
+    }
+
+    .api-linha {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .api-linha input {
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+    }
+
+    .api-linha button {
+      flex: none;
+      padding: 5px 9px;
+    }
+
+    .api-status {
+      margin-top: 5px;
+      font-size: 11px;
+      color: var(--suave);
+    }
+
+    .api-status.ok { color: #216e4e; }
+    html[data-color-mode="dark"] .api-status.ok { color: #7ee2b8; }
+    .api-status.erro { color: var(--erro); }
+
     .acoes {
       display: flex;
       align-items: center;
@@ -205,6 +244,12 @@
 <body>
   <div id="root">
     <div id="campos"><p class="aviso">Carregando...</p></div>
+
+    <div class="api-caixa" id="apiCaixa">
+      <p class="api-titulo">Atualização via API</p>
+      <div id="apiConteudo"></div>
+      <div class="api-status" id="apiStatus"></div>
+    </div>
 
     <div class="acoes">
       <button class="salvar" id="salvar">Salvar</button>
@@ -236,6 +281,8 @@ var TIPOS = {
 
 var definicoes = [];
 var config = {};
+var trelloApiKey = null;
+var trelloReadToken = null;
 
 function selectCores(atual) {
   // Migra configuracoes antigas: black nao e suportado pelos card-badges.
@@ -456,6 +503,121 @@ function coletar() {
   return novo;
 }
 
+function normalizarToken(token) {
+  if (!token) return null;
+  token = String(token);
+  if (token.charAt(0) === '#') {
+    var p = new URLSearchParams(token.slice(1));
+    return p.get('token') || null;
+  }
+  if (token.indexOf('token=') === 0) {
+    var p2 = new URLSearchParams(token);
+    return p2.get('token') || null;
+  }
+  return token;
+}
+
+function urlRetornoAuth() {
+  return new URL('./auth-return.html', window.location.href).href;
+}
+
+function setApiStatus(texto, classe) {
+  var s = document.getElementById('apiStatus');
+  s.className = 'api-status' + (classe ? ' ' + classe : '');
+  s.textContent = texto || '';
+  ajustar();
+}
+
+function montarApiAuth() {
+  var alvo = document.getElementById('apiConteudo');
+  alvo.textContent = '';
+
+  if (!trelloApiKey) {
+    var linha = document.createElement('div');
+    linha.className = 'api-linha';
+
+    var inp = document.createElement('input');
+    inp.id = 'trelloApiKey';
+    inp.type = 'text';
+    inp.placeholder = 'API key do Power-Up';
+    inp.autocomplete = 'off';
+    inp.spellcheck = false;
+    linha.appendChild(inp);
+
+    var salvarKey = document.createElement('button');
+    salvarKey.type = 'button';
+    salvarKey.textContent = 'Salvar';
+    salvarKey.addEventListener('click', function () {
+      var chave = (inp.value || '').trim();
+      if (!chave) {
+        setApiStatus('Informe a API key.', 'erro');
+        return;
+      }
+      salvarKey.disabled = true;
+      setApiStatus('Salvando...', '');
+      t.set('board', 'shared', 'trelloApiKey', chave)
+        .then(function () {
+          trelloApiKey = chave;
+          trelloReadToken = null;
+          montarApiAuth();
+        })
+        .catch(function (e) {
+          setApiStatus('Erro ao salvar a API key: ' + (e && e.message ? e.message : 'falha desconhecida'), 'erro');
+          salvarKey.disabled = false;
+        });
+    });
+    linha.appendChild(salvarKey);
+    alvo.appendChild(linha);
+    setApiStatus('Informe a API key uma única vez para este board.', '');
+    ajustar();
+    return;
+  }
+
+  if (trelloReadToken) {
+    var ok = document.createElement('span');
+    ok.textContent = 'Leitura direta autorizada nesta conta.';
+    alvo.appendChild(ok);
+    setApiStatus('Badges consultam a REST API a cada ciclo de 10 s.', 'ok');
+    ajustar();
+    return;
+  }
+
+  var autorizar = document.createElement('button');
+  autorizar.type = 'button';
+  autorizar.textContent = 'Autorizar minha conta';
+  autorizar.addEventListener('click', function () {
+    autorizar.disabled = true;
+    setApiStatus('Abrindo autorização do Trello...', '');
+
+    var authUrl = 'https://trello.com/1/authorize' +
+      '?expiration=never' +
+      '&scope=read' +
+      '&key=' + encodeURIComponent(trelloApiKey) +
+      '&callback_method=fragment' +
+      '&return_url=' + encodeURIComponent(urlRetornoAuth()) +
+      '&name=' + encodeURIComponent('Badges Interfood');
+
+    t.authorize(authUrl, { width: 600, height: 700 })
+      .then(function (token) {
+        token = normalizarToken(token);
+        if (!token) throw new Error('Token não recebido.');
+        return t.set('member', 'private', 'trelloReadToken', token).then(function () {
+          trelloReadToken = token;
+        });
+      })
+      .then(function () {
+        montarApiAuth();
+      })
+      .catch(function (e) {
+        autorizar.disabled = false;
+        setApiStatus('Autorização não concluída: ' + (e && e.message ? e.message : 'cancelada'), 'erro');
+      });
+  });
+  alvo.appendChild(autorizar);
+  setApiStatus('A autorização é individual e solicita somente leitura.', '');
+  ajustar();
+}
+
 function ajustar() {
   // O proprio #root contem todo o espacamento do popup. O Trello mede esse
   // elemento diretamente, conforme o fluxo recomendado para iframes de popup.
@@ -487,11 +649,16 @@ document.getElementById('salvar').addEventListener('click', function () {
 
 Promise.all([
   t.board('customFields'),
-  t.get('board', 'shared', 'config')
+  t.get('board', 'shared', 'config'),
+  t.get('board', 'shared', 'trelloApiKey'),
+  t.get('member', 'private', 'trelloReadToken')
 ]).then(function (res) {
   definicoes = (res[0] || {}).customFields || [];
   config = res[1] || {};
+  trelloApiKey = res[2] || null;
+  trelloReadToken = res[3] || null;
   montarTela();
+  montarApiAuth();
   ajustar();
 }).catch(function () {
   document.getElementById('campos').innerHTML =
