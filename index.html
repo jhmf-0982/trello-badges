@@ -14,6 +14,7 @@
    fornecidos pelo proprio Trello ao Power-Up.
 
    Nao usa API key, token ou autorizacao individual.
+   Versao de teste sem card-detail-badges; badges aparecem apenas na frente do card.
    ========================================================================== */
 
 var INTERVALO_BADGES = 10;
@@ -184,26 +185,6 @@ function criarBadgeFrente(t, definicao) {
   };
 }
 
-function criarBadgeDetalhe(t, definicao) {
-  return {
-    dynamic: function () {
-      return carregarCampoAtual(t, definicao).then(function (campo) {
-        if (!campo) return badgeVazio();
-
-        var badge = {
-          title: campo.nome,
-          text: campo.valor,
-          refresh: INTERVALO_BADGES
-        };
-        if (campo.cor) badge.color = campo.cor;
-        return badge;
-      }).catch(function () {
-        return badgeVazio();
-      });
-    }
-  };
-}
-
 function carregarDefinicoes(t) {
   return Promise.all([
     t.board('customFields'),
@@ -245,15 +226,6 @@ TrelloPowerUp.initialize({
     });
   },
 
-  'card-detail-badges': function (t) {
-    return carregarDefinicoes(t).then(function (definicoes) {
-      return definicoes.map(function (definicao) {
-        return criarBadgeDetalhe(t, definicao);
-      });
-    }).catch(function () {
-      return [];
-    });
-  },
 
   'show-settings': function (t) {
     return t.popup({
