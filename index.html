@@ -142,7 +142,14 @@ function montarCampo(definicao, itens, config) {
 }
 
 function badgeVazio() {
-  return { refresh: INTERVALO_BADGES };
+  // Em badges dinamicos, omitir `text` pode deixar o ultimo texto renderizado
+  // visivel ate o Trello reconstruir a capability (por exemplo, apos F5).
+  // Retornar texto vazio substitui explicitamente o valor anterior quando o
+  // Custom Field foi limpo ou deixou de existir no card.
+  return {
+    text: '',
+    refresh: INTERVALO_BADGES
+  };
 }
 
 function criarBadgeDiagnostico() {
